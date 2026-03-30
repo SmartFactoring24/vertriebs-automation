@@ -1,5 +1,6 @@
-﻿import { loadConfig } from "./config.js";
+import { loadConfig } from "./config.js";
 import { fetchSalesRecords } from "./connectors/ki.js";
+import { inspectKiDesktop, performKiLogin } from "./connectors/ki-desktop.js";
 import { detectChanges } from "./detectors/changes.js";
 import { exportChangesToCsv, exportSnapshotToCsv } from "./exporters/csv.js";
 import { exportSnapshotToXlsx } from "./exporters/xlsx.js";
@@ -40,7 +41,22 @@ async function runCycle() {
 }
 
 async function main() {
+  const config = loadConfig();
+  const inspectKi = process.argv.includes("--inspect-ki");
+  const loginKi = process.argv.includes("--login-ki");
   const runOnce = process.argv.includes("--once");
+
+  if (inspectKi) {
+    const state = await inspectKiDesktop(config);
+    console.log(JSON.stringify(state, null, 2));
+    return;
+  }
+
+  if (loginKi) {
+    const state = await performKiLogin(config);
+    console.log(JSON.stringify(state, null, 2));
+    return;
+  }
 
   do {
     await runCycle();
@@ -49,7 +65,6 @@ async function main() {
       break;
     }
 
-    const config = loadConfig();
     await waitForNextRun(config);
   } while (true);
 }

@@ -1,4 +1,4 @@
-﻿# Sales Automation MVP
+# Sales Automation MVP
 
 Dieses Verzeichnis enthaelt das Grundgeruest fuer eine lokale Windows-Automatisierung mit:
 
@@ -8,6 +8,10 @@ Dieses Verzeichnis enthaelt das Grundgeruest fuer eine lokale Windows-Automatisi
 - Benachrichtigung ueber `WhatsApp Web`
 
 Der Fokus dieser ersten Version liegt auf einer robusten Struktur, nicht auf fertigen Selektoren fuer eure echte `KI`-Oberflaeche oder WhatsApp-Gruppe.
+
+## Aktueller Stand
+
+Der Desktop-Loginpfad fuer den DVAG-Client ist auf dem Entwicklungsgeraet bereits erfolgreich automatisiert bis zum geoeffneten `KI`-Hauptfenster. Die aktuelle Uebergabe ist dokumentiert in [docs/handoff-2026-03-31.md](./docs/handoff-2026-03-31.md).
 
 ## Zielbild
 
@@ -47,19 +51,26 @@ vertriebs-automation/
 ## Schnellstart
 
 1. `.env.example` nach `.env` kopieren und Werte anpassen.
-2. Browser-Profile fuer `KI` und `WhatsApp Web` vorbereiten.
-3. Selektoren und Navigationslogik in `src/connectors/ki.ts` und `src/notifiers/whatsapp-web.ts` auf eure echte Oberflaeche anpassen.
-4. Abhaengigkeiten installieren:
+2. `.env` mit `KI_APP_PATH`, Login-Daten und WhatsApp-Gruppenname fuellen.
+3. Optional Fenster-Titelhinweise fuer `KI_LOGIN_WINDOW_TITLE_HINT` und `KI_MAIN_WINDOW_TITLE_HINT` setzen, sobald ihr die echten Titel kennt.
+4. Die native Login- und Fensterlogik in `src/connectors/ki.ts` und `src/connectors/ki-desktop.ts` sowie die WhatsApp-Navigation in `src/notifiers/whatsapp-web.ts` an eure echte Oberflaeche anpassen.
+5. Abhaengigkeiten installieren:
 
 ```powershell
 npm install
 npx playwright install chromium
 ```
 
-5. Zum lokalen Start:
+6. Zum lokalen Start:
 
 ```powershell
 npm run dev
+```
+
+Fuer den reinen Desktop-Login-Test bis zum geoeffneten `KI`-Fenster:
+
+```powershell
+npm run dev -- --login-ki
 ```
 
 ## Was bereits vorbereitet ist
@@ -86,4 +97,3 @@ npm run dev
 Fuer euer aktuelles Ziel `interne Gruppe informieren` ist diese Struktur bewusst auf `WhatsApp Web` ausgelegt.
 
 Wenn ihr spaeter auf die offizielle `WhatsApp Business Platform` wechselt, muesst ihr vor allem das Notifier-Modul austauschen. Die Module fuer `KI`, State, Export und Delta-Erkennung koennen bestehen bleiben.
-

@@ -22,9 +22,9 @@ flowchart LR
 
 1. Der Bot startet lokal ueber Windows-Login oder Task Scheduler.
 2. Er laedt Konfiguration und letzten Zustand.
-3. Er verbindet sich mit einem persistenten Browserprofil.
-4. Er prueft, ob `KI` erreichbar und in eingeloggtem Zustand ist.
-5. Er liest den aktuellen Datenbestand aus.
+3. Er startet `smartclient.exe` oder verbindet sich mit einem bereits laufenden KI-Prozess.
+4. Er erkennt Start-, Login-, Portal- oder Hauptfenster des Desktop-Clients.
+5. Er wartet den Updater- und Startbildschirm ab, passiert das `VB-Portal` und prueft danach, ob `KI` erreichbar und in eingeloggtem Zustand ist.
 6. Er normalisiert die Daten in ein einheitliches internes Format.
 7. Er vergleicht den neuen Snapshot mit dem letzten bekannten Snapshot.
 8. Er exportiert relevante Aenderungen.
@@ -41,6 +41,15 @@ Verantwortlich fuer:
 - Auslesen der Live-Daten
 - Extraktion der fachlich relevanten Felder
 - Fehlerbehandlung bei Ladefehlern, Session-Verlust oder Popups
+
+### `connectors/ki-desktop.ts`
+
+Verantwortlich fuer:
+
+- Start von `smartclient.exe`
+- Erkennung des laufenden KI-Prozesses
+- Erkennung von Start-, Login-, Portal- und Hauptfenstern
+- Grundlage fuer den spaeteren 2FA-gestuetzten Login-Flow
 
 ### `detectors/changes.ts`
 
@@ -140,11 +149,27 @@ Damit das Posting nicht versehentlich im falschen Chat landet, sollte der Notifi
 - keine API-Integration fuer WhatsApp Business Platform
 - keine serverseitige Ausfuehrung
 
+## Java Bridge Hinweis
+
+Fuer Java-/Swing-Fenster wie `DVAG Online-System` und `VB-Portal` kann die `Java Access Bridge` nur dann sinnvoll diagnostiziert werden, wenn:
+
+1. `jabswitch -enable` bereits aktiv ist
+2. die Java-Diagnose-Tools vor oder waehrend der frischen Session laufen
+3. der DVAG-Client danach neu gestartet wird
+
+Wenn die Bridge erst nach dem Start der Java-Prozesse aktiviert wurde, koennen `jaccessinspector` und `jaccesswalker` leer bleiben, obwohl das Fenster sichtbar ist.
+
 ## Empfohlene Roadmap
+
+## Aktueller Implementierungsstand
+
+Stand `2026-03-31` ist der Desktop-Loginpfad bis zum geoeffneten `KI`-Fenster auf dem Entwicklungsgeraet erfolgreich verifiziert. Die aktuelle Session-Zusammenfassung steht in [handoff-2026-03-31.md](./handoff-2026-03-31.md).
 
 ### Phase 1
 
-- `KI`-Daten im Browser sichtbar auslesen
+- `smartclient.exe` starten und Fensterzustand erkennen
+- Updater-/Startscreen sauber abwarten
+- Login-Flow nach 2FA-Freigabe stabil identifizieren
 - lokal als JSON und `CSV` speichern
 - keine WhatsApp-Integration
 

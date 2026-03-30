@@ -1,22 +1,27 @@
-﻿import { chromium, type BrowserContext } from "playwright";
 import type { AppConfig } from "../config.js";
 import type { SalesRecord } from "../state/types.js";
+import { ensureKiDesktopReady, performKiLogin } from "./ki-desktop.js";
 
 export async function fetchSalesRecords(config: AppConfig): Promise<SalesRecord[]> {
-  const context = await chromium.launchPersistentContext(config.kiBrowserProfile, {
-    headless: config.headless
-  });
+  const state = await ensureKiDesktopReady(config);
 
-  try {
-    return await collectSalesRecords(context, config);
-  } finally {
-    await context.close();
+  if (state.stage === "login") {
+    await performKiLogin(config);
   }
+
+  return collectSalesRecords(config);
 }
 
-async function collectSalesRecords(context: BrowserContext, config: AppConfig): Promise<SalesRecord[]> {
-  const page = context.pages()[0] ?? (await context.newPage());
-  await page.goto(config.kiBaseUrl, { waitUntil: "domcontentloaded" });
+async function collectSalesRecords(config: AppConfig): Promise<SalesRecord[]> {
+  // Der installierte Smartclient ist nach den lokalen Artefakten sehr wahrscheinlich
+  // ein Java/Swing-Client mit eingebettetem Chromium ueber JxBrowser.
+  // Der echte KI-Connector wird deshalb nativ am Desktop arbeiten:
+  // 1. smartclient.exe starten
+  // 2. Login-Fenster erkennen
+  // 3. Benutzerkennung/Passwort eintragen
+  // 4. auf 2FA-Freigabe und das Hauptfenster warten
+  // 5. danach Daten im Hauptfenster extrahieren
+  void config;
 
   return [
     {
