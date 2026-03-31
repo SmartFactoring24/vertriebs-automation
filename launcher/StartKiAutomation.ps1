@@ -5,10 +5,20 @@ Add-Type -AssemblyName System.Windows.Forms
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $nodeDir = Join-Path $repoRoot "tools\node-v24.11.0-win-x64"
 $npmCmd = Join-Path $nodeDir "npm.cmd"
+$resolvedNpm = $null
 
-if (-not (Test-Path $npmCmd)) {
+try {
+  $resolvedNpm = (Get-Command npm.cmd -ErrorAction Stop).Source
+} catch {
+  if (Test-Path $npmCmd) {
+    $resolvedNpm = $npmCmd
+    $env:PATH = "$nodeDir;$env:PATH"
+  }
+}
+
+if (-not $resolvedNpm) {
   [System.Windows.Forms.MessageBox]::Show(
-    "Die portable Node-Umgebung wurde nicht gefunden.`nErwartet: $npmCmd",
+    "Weder eine globale noch die portable Node-Umgebung wurde gefunden.`nErwartet lokal: $npmCmd",
     "StartKiAutomation",
     [System.Windows.Forms.MessageBoxButtons]::OK,
     [System.Windows.Forms.MessageBoxIcon]::Error
@@ -16,10 +26,9 @@ if (-not (Test-Path $npmCmd)) {
   exit 1
 }
 
-$env:PATH = "$nodeDir;$env:PATH"
 Set-Location $repoRoot
 
-& $npmCmd run dev -- --login-ki
+& $resolvedNpm run dev -- --login-ki
 $exitCode = $LASTEXITCODE
 
 if ($exitCode -ne 0) {

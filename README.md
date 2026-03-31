@@ -79,6 +79,8 @@ Alternativ gibt es einen einfachen Windows-Launcher:
 
 Der Launcher startet intern denselben Flow wie `npm run dev -- --login-ki`.
 
+Er verwendet bevorzugt eine global installierte `Node`/`npm`-Version und faellt nur dann auf die portable Repo-Version unter `tools/` zurueck.
+
 ## Was bereits vorbereitet ist
 
 - saubere Modultrennung
