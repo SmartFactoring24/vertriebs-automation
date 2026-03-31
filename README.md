@@ -73,6 +73,12 @@ Fuer den reinen Desktop-Login-Test bis zum geoeffneten `KI`-Fenster:
 npm run dev -- --login-ki
 ```
 
+Alternativ gibt es einen einfachen Windows-Launcher:
+
+- [launcher/StartKiAutomation.exe](./launcher/StartKiAutomation.exe)
+
+Der Launcher startet intern denselben Flow wie `npm run dev -- --login-ki`.
+
 ## Was bereits vorbereitet ist
 
 - saubere Modultrennung
