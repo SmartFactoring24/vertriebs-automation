@@ -20,7 +20,7 @@ async function runPowerShell(script: string): Promise<string> {
 export async function showRecoveryPrompt(options: {
   title: string;
   message: string;
-}): Promise<boolean> {
+}): Promise<"restart" | "abort_only" | "abort_and_close_ki"> {
   const escapedTitle = escapeSingleQuotedPowerShell(options.title);
   const escapedMessage = escapeSingleQuotedPowerShell(options.message);
   const script = `
@@ -28,14 +28,25 @@ Add-Type -AssemblyName System.Windows.Forms
 $result = [System.Windows.Forms.MessageBox]::Show(
   '${escapedMessage}',
   '${escapedTitle}',
-  [System.Windows.Forms.MessageBoxButtons]::YesNo,
+  [System.Windows.Forms.MessageBoxButtons]::AbortRetryIgnore,
   [System.Windows.Forms.MessageBoxIcon]::Warning
 )
-if ($result -eq [System.Windows.Forms.DialogResult]::Yes) { 'yes' } else { 'no' }
+
+switch ($result) {
+  ([System.Windows.Forms.DialogResult]::Retry) { 'restart' }
+  ([System.Windows.Forms.DialogResult]::Abort) { 'abort_and_close_ki' }
+  default { 'abort_only' }
+}
 `;
 
   const result = await runPowerShell(script);
-  return result.trim().toLowerCase() === "yes";
+  const normalizedResult = result.trim().toLowerCase();
+
+  if (normalizedResult === "restart" || normalizedResult === "abort_only" || normalizedResult === "abort_and_close_ki") {
+    return normalizedResult;
+  }
+
+  return "abort_only";
 }
 
 export async function showInfoDialog(options: {

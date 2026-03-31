@@ -124,16 +124,23 @@ async function handleCrash(options: {
     return "abort";
   }
 
-  const shouldRetry = await showRecoveryPrompt({
+  const recoveryDecision = await showRecoveryPrompt({
     title: "Vertriebs-Automation",
     message:
       "Beim Zugriff auf KI ist ein Fehler aufgetreten.\n\n" +
       `Fehlermeldung: ${errorMessage}\n\n` +
       `Ein Diagnoseprotokoll wurde erstellt:\n${crashLogPath}\n\n` +
-      "Soll die Anwendung alle zugehörigen KI-Prozesse beenden und anschließend einen automatischen Neustartversuch durchführen?"
+      "Wie soll die Anwendung jetzt reagieren?"
   });
 
-  if (!shouldRetry) {
+  if (recoveryDecision === "abort_and_close_ki") {
+    await appendLog(options.config.logDirectory, "Benutzer hat 'Bot und KI beenden' im Recovery-Dialog gewählt.");
+    await forceCloseKiProcesses(options.config);
+    return "abort";
+  }
+
+  if (recoveryDecision === "abort_only") {
+    await appendLog(options.config.logDirectory, "Benutzer hat 'Nur Bot beenden' im Recovery-Dialog gewählt.");
     return "abort";
   }
 

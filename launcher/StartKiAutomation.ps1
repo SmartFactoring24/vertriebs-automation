@@ -4,21 +4,22 @@ Add-Type -AssemblyName System.Windows.Forms
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $nodeDir = Join-Path $repoRoot "tools\node-v24.11.0-win-x64"
-$npmCmd = Join-Path $nodeDir "npm.cmd"
-$resolvedNpm = $null
+$nodeExe = Join-Path $nodeDir "node.exe"
+$resolvedNode = $null
+$tsxCli = Join-Path $repoRoot "node_modules\\tsx\\dist\\cli.mjs"
 
 try {
-  $resolvedNpm = (Get-Command npm.cmd -ErrorAction Stop).Source
+  $resolvedNode = (Get-Command node.exe -ErrorAction Stop).Source
 } catch {
-  if (Test-Path $npmCmd) {
-    $resolvedNpm = $npmCmd
+  if (Test-Path $nodeExe) {
+    $resolvedNode = $nodeExe
     $env:PATH = "$nodeDir;$env:PATH"
   }
 }
 
-if (-not $resolvedNpm) {
+if (-not $resolvedNode) {
   [System.Windows.Forms.MessageBox]::Show(
-    "Weder eine globale noch die portable Node-Umgebung wurde gefunden.`nErwartet lokal: $npmCmd",
+    "Weder eine globale noch die portable Node-Umgebung wurde gefunden.`nErwartet lokal: $nodeExe",
     "StartKiAutomation",
     [System.Windows.Forms.MessageBoxButtons]::OK,
     [System.Windows.Forms.MessageBoxIcon]::Error
@@ -115,10 +116,25 @@ function Test-LauncherPrerequisites {
 function Start-BotMode {
   param(
     [string[]]$Arguments,
-    [switch]$AllowAbortHotkey
+    [switch]$AllowAbortHotkey,
+    [switch]$Inline,
+    [switch]$CaptureOutput
   )
 
-  $argumentList = @("run", "dev", "--") + $Arguments
+  $argumentList = @($tsxCli, "src/main.ts") + $Arguments
+  if ($Inline) {
+    if ($CaptureOutput) {
+      $capturedOutput = & $resolvedNode @argumentList 2>&1 | Out-String
+      return [PSCustomObject]@{
+        ExitCode = $LASTEXITCODE
+        Output = $capturedOutput.TrimEnd()
+      }
+    }
+
+    & $resolvedNode @argumentList
+    return $LASTEXITCODE
+  }
+
   $escapedArguments = $argumentList | ForEach-Object {
     if ($_ -match '\s') {
       '"' + $_ + '"'
@@ -127,7 +143,7 @@ function Start-BotMode {
     }
   }
 
-  $process = Start-Process -FilePath $resolvedNpm -ArgumentList $escapedArguments -WorkingDirectory $repoRoot -PassThru
+  $process = Start-Process -FilePath $resolvedNode -ArgumentList $escapedArguments -WorkingDirectory $repoRoot -PassThru
 
   while (-not $process.HasExited) {
     if ($AllowAbortHotkey -and [Console]::KeyAvailable) {
@@ -166,17 +182,34 @@ function Show-DebugMenu {
       "1" {
         Write-Host ""
         Write-Host "Recovery- und Crash-Test wird gestartet..." -ForegroundColor Yellow
-        return Start-BotMode @("--test-recovery")
+        $exitCode = Start-BotMode @("--test-recovery") -Inline
+        Read-Host "Recovery-Test beendet. Mit Enter zurück ins Debug-Menü"
+        continue
       }
       "2" {
         Write-Host ""
         Write-Host "KI-Statusdiagnose wird gestartet..." -ForegroundColor Yellow
-        return Start-BotMode @("--inspect-ki")
+        $result = Start-BotMode @("--inspect-ki") -Inline -CaptureOutput
+        Write-Host ""
+        Write-Host "---------------- KI-Status ----------------" -ForegroundColor Cyan
+        if ($result.Output) {
+          Write-Host $result.Output
+        } else {
+          Write-Host "Keine Statusdaten ausgegeben." -ForegroundColor Yellow
+        }
+        Write-Host "-------------------------------------------" -ForegroundColor Cyan
+        Read-Host "KI-Statusdiagnose beendet. Mit Enter zurück ins Debug-Menü"
+        continue
       }
       "3" {
         Write-Host ""
         Write-Host "KI-Prozesse werden beendet..." -ForegroundColor Yellow
-        return Start-BotMode @("--close-ki")
+        $result = Start-BotMode @("--close-ki") -Inline -CaptureOutput
+        if ($result.Output) {
+          Write-Host $result.Output
+        }
+        Read-Host "KI-Prozessstopp beendet. Mit Enter zurück ins Debug-Menü"
+        continue
       }
       "0" {
         Write-Host ""

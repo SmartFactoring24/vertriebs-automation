@@ -6,6 +6,7 @@ type AppConfig = {
   kiUsername: string;
   kiPassword: string;
   kiLoginTimeoutSeconds: number;
+  kiMainWindowTimeoutSeconds: number;
   kiProcessName: string;
   kiStartupWindowTitleHint: string;
   kiLoginWindowTitleHint: string;
@@ -58,6 +59,7 @@ export function loadConfig(): AppConfig {
     kiUsername: requireEnv("KI_USERNAME"),
     kiPassword: requireEnv("KI_PASSWORD"),
     kiLoginTimeoutSeconds: Number.parseInt(requireEnv("KI_LOGIN_TIMEOUT_SECONDS", "120"), 10),
+    kiMainWindowTimeoutSeconds: Number.parseInt(requireEnv("KI_MAIN_WINDOW_TIMEOUT_SECONDS", "300"), 10),
     kiProcessName: requireEnv("KI_PROCESS_NAME", "smartclient"),
     kiStartupWindowTitleHint: optionalEnv("KI_STARTUP_WINDOW_TITLE_HINT"),
     kiLoginWindowTitleHint: optionalEnv("KI_LOGIN_WINDOW_TITLE_HINT"),

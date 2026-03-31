@@ -248,7 +248,7 @@ async function waitForKiPortalWindow(config: AppConfig): Promise<KiDesktopState>
 }
 
 async function waitForKiMainWindow(config: AppConfig): Promise<KiDesktopState> {
-  const timeoutAt = Date.now() + config.kiLoginTimeoutSeconds * 1000;
+  const timeoutAt = Date.now() + config.kiMainWindowTimeoutSeconds * 1000;
 
   while (Date.now() < timeoutAt) {
     const latestState = await getKiDesktopState(config);
@@ -260,7 +260,7 @@ async function waitForKiMainWindow(config: AppConfig): Promise<KiDesktopState> {
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
-  throw new Error(`KI hat das eigentliche Hauptfenster nach dem Portal-Ablauf nicht innerhalb von ${config.kiLoginTimeoutSeconds} Sekunden erreicht.`);
+  throw new Error(`KI hat das eigentliche Hauptfenster nach dem Portal-Ablauf nicht innerhalb von ${config.kiMainWindowTimeoutSeconds} Sekunden erreicht.`);
 }
 
 async function clickKiOpenInPortal(
