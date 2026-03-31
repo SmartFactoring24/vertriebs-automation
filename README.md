@@ -97,6 +97,7 @@ Zusätzlich gibt es einen vereinfachten Troubleshooting-Einstieg direkt im Launc
 - Mit `2` wird eine KI-Statusdiagnose ausgegeben.
 - Mit `3` werden alle zugehörigen KI-Prozesse sauber beendet.
 - Mit `0` wird der normale Start fortgesetzt.
+- WÃ¤hrend des laufenden Startvorgangs kann jederzeit `F12` gedrÃ¼ckt werden, um Bot und KI-Prozesse sauber abzubrechen.
 
 Wichtige Hinweise für Nutzer:
 
@@ -104,6 +105,7 @@ Wichtige Hinweise für Nutzer:
 - Die DVAG-2FA muss während des Anmeldevorgangs manuell freigegeben werden.
 - Das Freigabegerät sollte deshalb beim Start des Bots unmittelbar bereitliegen.
 - Crash- und Diagnoseprotokolle werden lokal unter `./data/logs` gespeichert.
+- Der Launcher prÃ¼ft vor dem Start, ob `.env` und `node_modules` vorhanden sind.
 
 ## Was bereits vorbereitet ist
 

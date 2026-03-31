@@ -31,6 +31,14 @@ type KiWindowInfo = {
   height: number;
 };
 
+type KiWindowMatchContext = {
+  loginTitleHint: string;
+  startupTitleHint: string;
+  portalTitleHint: string;
+  postPortalNewsTitleHint: string;
+  mainTitleHint: string;
+};
+
 function escapeSingleQuotedPowerShell(value: string): string {
   return value.replace(/'/g, "''");
 }
@@ -102,7 +110,8 @@ export async function performKiLogin(config: AppConfig): Promise<KiDesktopState>
 
   const portalState = await waitForKiPortalWindow(config);
   const portalProcessId = getPortalProcessId(config, portalState);
-  await clickKiOpenInPortal(config, portalState);
+  await clickKiOpenInPortal(config, portalState, portalProcessId);
+  await dismissPostPortalConflictPopup(config, portalProcessId);
 
   if (config.kiPostPortalNewsEnabled) {
     await dismissPostPortalNewsWindow(config, portalProcessId);
@@ -254,13 +263,22 @@ async function waitForKiMainWindow(config: AppConfig): Promise<KiDesktopState> {
   throw new Error(`KI hat das eigentliche Hauptfenster nach dem Portal-Ablauf nicht innerhalb von ${config.kiLoginTimeoutSeconds} Sekunden erreicht.`);
 }
 
-async function clickKiOpenInPortal(config: AppConfig, state: KiDesktopState): Promise<void> {
-  const portalWindow = state.windowDiagnostics.find(
-    (window) => window.visible && window.processName === "javaw" && window.title.includes(config.kiPortalWindowTitleHint)
+async function clickKiOpenInPortal(
+  config: AppConfig,
+  state: KiDesktopState,
+  portalProcessId?: number
+): Promise<void> {
+  const portalWindow = findPortalWindow(
+    state.windowDiagnostics,
+    createWindowMatchContext(config)
   );
 
   if (!portalWindow) {
     throw new Error("Das VB-Portal-Fenster steht für den Schritt 'KI öffnen' nicht zur Verfügung.");
+  }
+
+  if (hasPostPortalActivity(state.windowDiagnostics, createWindowMatchContext(config), portalProcessId)) {
+    return;
   }
 
   const targetX = Math.round(portalWindow.x + portalWindow.width * config.kiPortalKiButtonRelX);
@@ -281,9 +299,9 @@ if (-not $wshell.AppActivate('${escapedTitle}')) {
 }
 Start-Sleep -Milliseconds 700
 [NativeMouse]::SetCursorPos(${targetX}, ${targetY}) | Out-Null
-Start-Sleep -Milliseconds 220
+Start-Sleep -Milliseconds 120
 [NativeMouse]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
-Start-Sleep -Milliseconds 180
+Start-Sleep -Milliseconds 60
 [NativeMouse]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
 `;
 
@@ -313,6 +331,22 @@ async function dismissPostPortalNewsWindow(config: AppConfig, portalProcessId?: 
     portalProcessId,
     preferNonPortalJavaw: true
   });
+}
+
+async function dismissPostPortalConflictPopup(config: AppConfig, portalProcessId?: number): Promise<void> {
+  const timeoutAt = Date.now() + config.kiPostPortalConflictPopupPollSeconds * 1000;
+
+  while (Date.now() < timeoutAt) {
+    const state = await getKiDesktopState(config);
+    const conflictPopup = findConflictPopupWindow(state.windowDiagnostics, createWindowMatchContext(config), portalProcessId);
+
+    if (conflictPopup) {
+      await confirmWindowByProcessId(conflictPopup.processId);
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
 }
 
 async function dismissJavaWindowByTabSequence(
@@ -347,6 +381,20 @@ if (-not $wshell.AppActivate(${preferredWindow.processId})) {
 Start-Sleep -Milliseconds 500
 [System.Windows.Forms.SendKeys]::SendWait('${tabs}')
 Start-Sleep -Milliseconds 150
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+`;
+
+  await runPowerShell(script);
+}
+
+async function confirmWindowByProcessId(processId: number): Promise<void> {
+  const script = `
+Add-Type -AssemblyName System.Windows.Forms
+$wshell = New-Object -ComObject WScript.Shell
+if (-not $wshell.AppActivate(${processId})) {
+  return
+}
+Start-Sleep -Milliseconds 250
 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 `;
 
@@ -391,9 +439,7 @@ function findPreferredJavawWindow(
 }
 
 function getPortalProcessId(config: AppConfig, state: KiDesktopState): number | undefined {
-  return state.windowDiagnostics.find(
-    (window) => window.processName === "javaw" && window.title.includes(config.kiPortalWindowTitleHint)
-  )?.processId;
+  return findPortalWindow(state.windowDiagnostics, createWindowMatchContext(config))?.processId;
 }
 
 async function closeJavaDiagnosticTools(): Promise<void> {
@@ -449,13 +495,14 @@ async function getKiDesktopState(config: AppConfig): Promise<KiDesktopState> {
       ? [parsed.windowDiagnostics]
       : [];
 
-  const startupWindowDetected = matchesAnyWindowTitle(visibleWindowTitles, config.kiStartupWindowTitleHint);
-  const loginWindowDetected = matchesAnyWindowTitle(visibleWindowTitles, config.kiLoginWindowTitleHint);
-  const portalWindowDetected = matchesAnyWindowTitle(visibleWindowTitles, config.kiPortalWindowTitleHint);
-  const mainWindowDetected = matchesAnyWindowTitle(visibleWindowTitles, config.kiMainWindowTitleHint);
+  const matchContext = createWindowMatchContext(config);
+  const startupWindowDetected = hasStartupWindow(windowDiagnostics, matchContext);
+  const loginWindowDetected = hasLoginWindow(windowDiagnostics, matchContext);
+  const portalWindowDetected = hasPortalWindow(windowDiagnostics, matchContext);
+  const mainWindowDetected = hasMainWindow(windowDiagnostics, matchContext);
   const stage = determineKiDesktopStage({
     processDetected: parsed.processDetected,
-    visibleWindowTitles,
+    windowDiagnostics,
     startupWindowDetected,
     loginWindowDetected,
     portalWindowDetected,
@@ -536,18 +583,9 @@ $result | ConvertTo-Json -Compress
   return script;
 }
 
-function matchesAnyWindowTitle(windowTitles: string[], hint: string): boolean {
-  if (!hint.trim()) {
-    return false;
-  }
-
-  const normalizedHint = hint.trim().toLowerCase();
-  return windowTitles.some((title) => title.toLowerCase().includes(normalizedHint));
-}
-
 function determineKiDesktopStage(input: {
   processDetected: boolean;
-  visibleWindowTitles: string[];
+  windowDiagnostics: KiWindowInfo[];
   startupWindowDetected: boolean;
   loginWindowDetected: boolean;
   portalWindowDetected: boolean;
@@ -573,11 +611,162 @@ function determineKiDesktopStage(input: {
     return "starting";
   }
 
-  if (input.visibleWindowTitles.length > 0) {
+  if (input.windowDiagnostics.some((window) => window.visible && window.title.trim())) {
     return "unknown_window";
   }
 
   return "starting";
+}
+
+function createWindowMatchContext(config: AppConfig): KiWindowMatchContext {
+  return {
+    loginTitleHint: normalizeWindowTitle(config.kiLoginWindowTitleHint),
+    startupTitleHint: normalizeWindowTitle(config.kiStartupWindowTitleHint),
+    portalTitleHint: normalizeWindowTitle(config.kiPortalWindowTitleHint),
+    postPortalNewsTitleHint: normalizeWindowTitle(config.kiPostPortalNewsWindowTitleHint),
+    mainTitleHint: normalizeWindowTitle(config.kiMainWindowTitleHint)
+  };
+}
+
+function normalizeWindowTitle(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function isVisibleJavaWindow(window: KiWindowInfo): boolean {
+  return window.processName === "javaw" && window.visible;
+}
+
+function titleIncludes(title: string, needle: string): boolean {
+  return needle.length > 0 && normalizeWindowTitle(title).includes(needle);
+}
+
+function titleEquals(title: string, needle: string): boolean {
+  return needle.length > 0 && normalizeWindowTitle(title) === needle;
+}
+
+function hasPortalWindow(windows: KiWindowInfo[], context: KiWindowMatchContext): boolean {
+  return findPortalWindow(windows, context) !== undefined;
+}
+
+function findPortalWindow(windows: KiWindowInfo[], context: KiWindowMatchContext): KiWindowInfo | undefined {
+  return windows.find((window) => isVisibleJavaWindow(window) && titleIncludes(window.title, context.portalTitleHint));
+}
+
+function hasNewsWindow(windows: KiWindowInfo[], context: KiWindowMatchContext): boolean {
+  return windows.some((window) => isVisibleJavaWindow(window) && titleIncludes(window.title, context.postPortalNewsTitleHint));
+}
+
+function findConflictPopupWindow(
+  windows: KiWindowInfo[],
+  context: KiWindowMatchContext,
+  portalProcessId?: number
+): KiWindowInfo | undefined {
+  return windows
+    .filter((window) => {
+      if (!isVisibleJavaWindow(window)) {
+        return false;
+      }
+
+      if (portalProcessId && window.processId === portalProcessId) {
+        return false;
+      }
+
+      if (titleIncludes(window.title, context.portalTitleHint) || titleIncludes(window.title, context.postPortalNewsTitleHint)) {
+        return false;
+      }
+
+      if (isMainWindowCandidate(window, context) || isLoginWindowCandidate(window, context)) {
+        return false;
+      }
+
+      return window.width > 0 && window.height > 0 && window.width <= 900 && window.height <= 800;
+    })
+    .sort((left, right) => right.processId - left.processId)[0];
+}
+
+function hasPostPortalActivity(
+  windows: KiWindowInfo[],
+  context: KiWindowMatchContext,
+  portalProcessId?: number
+): boolean {
+  return windows.some((window) => {
+    if (window.processName !== "javaw") {
+      return false;
+    }
+
+    if (portalProcessId && window.processId === portalProcessId) {
+      return false;
+    }
+
+    if (findConflictPopupWindow([window], context, portalProcessId)) {
+      return true;
+    }
+
+    if (isVisibleJavaWindow(window) && titleIncludes(window.title, context.postPortalNewsTitleHint)) {
+      return true;
+    }
+
+    return isMainWindowCandidate(window, context);
+  });
+}
+
+function hasMainWindow(windows: KiWindowInfo[], context: KiWindowMatchContext): boolean {
+  return windows.some((window) => isMainWindowCandidate(window, context));
+}
+
+function isMainWindowCandidate(window: KiWindowInfo, context: KiWindowMatchContext): boolean {
+  if (!isVisibleJavaWindow(window)) {
+    return false;
+  }
+
+  if (titleIncludes(window.title, context.portalTitleHint) || titleIncludes(window.title, context.postPortalNewsTitleHint)) {
+    return false;
+  }
+
+  if (context.mainTitleHint && titleIncludes(window.title, context.mainTitleHint)) {
+    return true;
+  }
+
+  const normalizedTitle = normalizeWindowTitle(window.title);
+  const isGenericDvagMain = normalizedTitle.includes("dvag online-system");
+  const looksLikeExactLoginWindow =
+    titleEquals(window.title, context.loginTitleHint) || titleEquals(window.title, context.startupTitleHint);
+
+  return isGenericDvagMain && !looksLikeExactLoginWindow && window.width >= 600 && window.height >= 400;
+}
+
+function hasLoginWindow(windows: KiWindowInfo[], context: KiWindowMatchContext): boolean {
+  return windows.some((window) => isLoginWindowCandidate(window, context));
+}
+
+function isLoginWindowCandidate(window: KiWindowInfo, context: KiWindowMatchContext): boolean {
+  if (!isVisibleJavaWindow(window)) {
+    return false;
+  }
+
+  if (titleIncludes(window.title, context.portalTitleHint) || titleIncludes(window.title, context.postPortalNewsTitleHint)) {
+    return false;
+  }
+
+  if (titleEquals(window.title, context.loginTitleHint)) {
+    return true;
+  }
+
+  return titleEquals(window.title, context.startupTitleHint);
+}
+
+function hasStartupWindow(windows: KiWindowInfo[], context: KiWindowMatchContext): boolean {
+  if (windows.every((window) => !window.visible || !window.title.trim())) {
+    return true;
+  }
+
+  return windows.some((window) => {
+    if (!isVisibleJavaWindow(window)) {
+      return false;
+    }
+
+    return titleEquals(window.title, context.startupTitleHint) && !titleEquals(window.title, context.loginTitleHint);
+  });
 }
 
 export type { KiDesktopStage, KiDesktopState, KiWindowInfo };

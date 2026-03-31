@@ -18,6 +18,7 @@ type AppConfig = {
   kiPostPortalNewsEnabled: boolean;
   kiPostPortalNewsWindowTitleHint: string;
   kiPostPortalNewsDelayMs: number;
+  kiPostPortalConflictPopupPollSeconds: number;
   kiPostPortalNewsPollSeconds: number;
   kiPostPortalNewsTabCount: number;
   kiPortalKiButtonRelX: number;
@@ -69,6 +70,7 @@ export function loadConfig(): AppConfig {
     kiPostPortalNewsEnabled: requireEnv("KI_POST_PORTAL_NEWS_ENABLED", "true").toLowerCase() === "true",
     kiPostPortalNewsWindowTitleHint: optionalEnv("KI_POST_PORTAL_NEWS_WINDOW_TITLE_HINT", "Mitteilungen"),
     kiPostPortalNewsDelayMs: Number.parseInt(requireEnv("KI_POST_PORTAL_NEWS_DELAY_MS", "2500"), 10),
+    kiPostPortalConflictPopupPollSeconds: Number.parseInt(requireEnv("KI_POST_PORTAL_CONFLICT_POPUP_POLL_SECONDS", "5"), 10),
     kiPostPortalNewsPollSeconds: Number.parseInt(requireEnv("KI_POST_PORTAL_NEWS_POLL_SECONDS", "15"), 10),
     kiPostPortalNewsTabCount: Number.parseInt(requireEnv("KI_POST_PORTAL_NEWS_TAB_COUNT", "4"), 10),
     kiPortalKiButtonRelX: Number.parseFloat(requireEnv("KI_PORTAL_KI_BUTTON_REL_X", "0.56375")),
