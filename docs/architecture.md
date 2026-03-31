@@ -2,9 +2,9 @@
 
 ## Ziel
 
-Die Anwendung soll Verkaufsdaten aus dem internen Programm `KI` auslesen, Aenderungen erkennen, diese lokal archivieren und relevante Updates in eine interne WhatsApp-Gruppe posten.
+Die Anwendung soll Verkaufsdaten aus dem internen Programm `KI` auslesen, Änderungen erkennen, diese lokal archivieren und relevante Updates in eine interne WhatsApp-Gruppe posten.
 
-## Systemuebersicht
+## Systemübersicht
 
 ```mermaid
 flowchart LR
@@ -20,22 +20,22 @@ flowchart LR
 
 ## Laufzeitablauf
 
-1. Der Bot startet lokal ueber Windows-Login oder Task Scheduler.
-2. Er laedt Konfiguration und letzten Zustand.
+1. Der Bot startet lokal über Windows-Login oder Task Scheduler.
+2. Er lädt Konfiguration und letzten Zustand.
 3. Er startet `smartclient.exe` oder verbindet sich mit einem bereits laufenden KI-Prozess.
 4. Er erkennt Start-, Login-, Portal- oder Hauptfenster des Desktop-Clients.
-5. Er wartet den Updater- und Startbildschirm ab, passiert das `VB-Portal` und prueft danach, ob `KI` erreichbar und in eingeloggtem Zustand ist.
+5. Er wartet den Updater- und Startbildschirm ab, passiert das `VB-Portal` und prüft danach, ob `KI` erreichbar und in eingeloggtem Zustand ist.
 6. Er normalisiert die Daten in ein einheitliches internes Format.
 7. Er vergleicht den neuen Snapshot mit dem letzten bekannten Snapshot.
-8. Er exportiert relevante Aenderungen.
-9. Er sendet nur bei echten Aenderungen eine WhatsApp-Meldung.
-10. Er speichert den neuen Zustand und wartet bis zum naechsten Lauf.
+8. Er exportiert relevante Änderungen.
+9. Er sendet nur bei echten Änderungen eine WhatsApp-Meldung.
+10. Er speichert den neuen Zustand und wartet bis zum nächsten Lauf.
 
 ## Hauptmodule
 
 ### `connectors/ki.ts`
 
-Verantwortlich fuer:
+Verantwortlich für:
 
 - Navigation in der `KI`
 - Auslesen der Live-Daten
@@ -44,43 +44,43 @@ Verantwortlich fuer:
 
 ### `connectors/ki-desktop.ts`
 
-Verantwortlich fuer:
+Verantwortlich für:
 
 - Start von `smartclient.exe`
 - Erkennung des laufenden KI-Prozesses
 - Erkennung von Start-, Login-, Portal- und Hauptfenstern
-- Grundlage fuer den spaeteren 2FA-gestuetzten Login-Flow
+- Grundlage für den späteren 2FA-gestützten Login-Flow
 
 ### `detectors/changes.ts`
 
-Verantwortlich fuer:
+Verantwortlich für:
 
 - Vergleich von altem und neuem Snapshot
-- Erkennung neuer Geschaefte
-- Erkennung von Statusaenderungen
-- Erkennung relevanter Wertaenderungen
+- Erkennung neuer Geschäfte
+- Erkennung von Statusänderungen
+- Erkennung relevanter Wertänderungen
 - Entdoppelung bereits gemeldeter Ereignisse
 
 ### `exporters/csv.ts` und `exporters/xlsx.ts`
 
-Verantwortlich fuer:
+Verantwortlich für:
 
 - revisionssichere Archivierung pro Lauf
 - Delta-Export oder Vollsnapshot
-- spaetere Weitergabe fuer Reporting
+- spätere Weitergabe für Reporting
 
 ### `notifiers/whatsapp-web.ts`
 
-Verantwortlich fuer:
+Verantwortlich für:
 
-- Oeffnen oder Uebernehmen des Browserkontexts
+- Öffnen oder Übernehmen des Browserkontexts
 - Suchen und Validieren der Zielgruppe
 - Schreiben und Senden von Nachrichten
-- Rueckpruefung, ob die Nachricht sichtbar im Chatverlauf steht
+- Rückprüfung, ob die Nachricht sichtbar im Chatverlauf steht
 
 ### `state/store.ts`
 
-Verantwortlich fuer:
+Verantwortlich für:
 
 - Persistenz des letzten bekannten Snapshots
 - Speicherung bereits gemeldeter Ereignisse
@@ -101,7 +101,7 @@ Verantwortlich fuer:
 }
 ```
 
-## Arten von Aenderungen
+## Arten von Änderungen
 
 - `created`
 - `status_changed`
@@ -119,13 +119,13 @@ Empfohlene Dateien unter `data/state/`:
 
 ## WhatsApp Web Absicherung
 
-Damit das Posting nicht versehentlich im falschen Chat landet, sollte der Notifier mindestens Folgendes pruefen:
+Damit das Posting nicht versehentlich im falschen Chat landet, sollte der Notifier mindestens Folgendes prüfen:
 
 1. WhatsApp Web ist geladen und verbunden.
 2. Der Suchdialog ist bereit.
 3. Der gefundene Chatname entspricht exakt dem konfigurierten Gruppennamen.
 4. Der aktive Header des offenen Chats entspricht exakt dem Zielnamen.
-5. Der Nachrichtentext wurde korrekt in das Eingabefeld eingefuegt.
+5. Der Nachrichtentext wurde korrekt in das Eingabefeld eingefügt.
 6. Nach dem Senden ist die Nachricht im Verlauf sichtbar.
 
 ## Betriebsarten
@@ -133,37 +133,37 @@ Damit das Posting nicht versehentlich im falschen Chat landet, sollte der Notifi
 ### Modus A: Polling
 
 - Intervall z. B. alle `5` Minuten
-- einfacher fuer Version 1
-- geeignet fuer Bots auf einem Arbeitsrechner
+- einfacher für Version 1
+- geeignet für Bots auf einem Arbeitsrechner
 
 ### Modus B: Session-basierter Tageslauf
 
 - Start morgens durch Nutzer
-- manuelle Login-Pruefung nur einmal
-- anschliessend Tagesbetrieb mit Intervallpruefung
+- manuelle Login-Prüfung nur einmal
+- anschließend Tagesbetrieb mit Intervallprüfung
 
 ## MVP Grenzen
 
-- keine fertigen Selektoren fuer eure reale `KI`
+- keine fertigen Selektoren für eure reale `KI`
 - kein produktionsreifer Wiederanlauf nach Browser-Absturz
-- keine API-Integration fuer WhatsApp Business Platform
-- keine serverseitige Ausfuehrung
+- keine API-Integration für WhatsApp Business Platform
+- keine serverseitige Ausführung
 
 ## Java Bridge Hinweis
 
-Fuer Java-/Swing-Fenster wie `DVAG Online-System` und `VB-Portal` kann die `Java Access Bridge` nur dann sinnvoll diagnostiziert werden, wenn:
+Für Java-/Swing-Fenster wie `DVAG Online-System` und `VB-Portal` kann die `Java Access Bridge` nur dann sinnvoll diagnostiziert werden, wenn:
 
 1. `jabswitch -enable` bereits aktiv ist
-2. die Java-Diagnose-Tools vor oder waehrend der frischen Session laufen
+2. die Java-Diagnose-Tools vor oder während der frischen Session laufen
 3. der DVAG-Client danach neu gestartet wird
 
-Wenn die Bridge erst nach dem Start der Java-Prozesse aktiviert wurde, koennen `jaccessinspector` und `jaccesswalker` leer bleiben, obwohl das Fenster sichtbar ist.
+Wenn die Bridge erst nach dem Start der Java-Prozesse aktiviert wurde, können `jaccessinspector` und `jaccesswalker` leer bleiben, obwohl das Fenster sichtbar ist.
 
 ## Empfohlene Roadmap
 
 ## Aktueller Implementierungsstand
 
-Stand `2026-03-31` ist der Desktop-Loginpfad bis zum geoeffneten `KI`-Fenster auf dem Entwicklungsgeraet erfolgreich verifiziert. Die aktuelle Session-Zusammenfassung steht in [handoff-2026-03-31.md](./handoff-2026-03-31.md).
+Stand `2026-03-31` ist der Desktop-Loginpfad bis zum geöffneten `KI`-Fenster auf dem Entwicklungsgerät erfolgreich verifiziert. Die aktuelle Session-Zusammenfassung steht in [handoff-2026-03-31.md](./handoff-2026-03-31.md).
 
 ### Phase 1
 

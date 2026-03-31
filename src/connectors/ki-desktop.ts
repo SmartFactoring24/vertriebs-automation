@@ -70,7 +70,7 @@ export async function ensureKiDesktopReady(config: AppConfig): Promise<KiDesktop
   }
 
   throw new Error(
-    `KI desktop did not reach login or main window within ${config.kiLoginTimeoutSeconds} seconds.`
+    `KI hat innerhalb von ${config.kiLoginTimeoutSeconds} Sekunden weder das Login-Fenster noch das Hauptfenster erreicht.`
   );
 }
 
@@ -90,7 +90,7 @@ export async function performKiLogin(config: AppConfig): Promise<KiDesktopState>
   }
 
   if (state.stage !== "login") {
-    throw new Error(`KI desktop is not at the login stage. Current stage: ${state.stage}`);
+    throw new Error(`KI befindet sich nicht im erwarteten Login-Status. Aktueller Status: ${state.stage}`);
   }
 
   await submitKiLogin(config);
@@ -111,6 +111,47 @@ export async function performKiLogin(config: AppConfig): Promise<KiDesktopState>
   return waitForKiMainWindow(config);
 }
 
+export async function forceCloseKiProcesses(config: AppConfig): Promise<void> {
+  const processName = escapeSingleQuotedPowerShell(config.kiProcessName);
+  const installRoot = escapeSingleQuotedPowerShell(path.dirname(path.dirname(config.kiAppPath)));
+  const script = `
+$rootProcesses = @(Get-Process -Name '${processName}' -ErrorAction SilentlyContinue)
+$allProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+$killIds = New-Object System.Collections.Generic.HashSet[int]
+$queue = New-Object System.Collections.Generic.Queue[int]
+
+foreach ($root in $rootProcesses) {
+  if ($killIds.Add([int]$root.Id)) {
+    $queue.Enqueue([int]$root.Id)
+  }
+}
+
+while ($queue.Count -gt 0) {
+  $parentId = $queue.Dequeue()
+  $children = @($allProcesses | Where-Object { $_.ParentProcessId -eq $parentId })
+  foreach ($child in $children) {
+    if ($killIds.Add([int]$child.ProcessId)) {
+      $queue.Enqueue([int]$child.ProcessId)
+    }
+  }
+}
+
+$relatedJavaProcesses = @(Get-Process -Name 'javaw' -ErrorAction SilentlyContinue | Where-Object {
+  $_.Path -and $_.Path.StartsWith('${installRoot}', [System.StringComparison]::OrdinalIgnoreCase)
+})
+
+foreach ($proc in $relatedJavaProcesses) {
+  [void]$killIds.Add([int]$proc.Id)
+}
+
+foreach ($processId in @($killIds)) {
+  Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+}
+`;
+
+  await runPowerShell(script);
+}
+
 async function startKiProcess(config: AppConfig): Promise<void> {
   const escapedPath = escapeSingleQuotedPowerShell(config.kiAppPath);
   await runPowerShell(`Start-Process -FilePath '${escapedPath}'`);
@@ -120,7 +161,7 @@ async function submitKiLogin(config: AppConfig): Promise<void> {
   const loginHint = config.kiLoginWindowTitleHint || config.kiStartupWindowTitleHint;
 
   if (!loginHint.trim()) {
-    throw new Error("KI login window title hint is not configured.");
+    throw new Error("Der Fenstertitel-Hinweis für das KI-Login ist nicht konfiguriert.");
   }
 
   const escapedTitle = escapeSingleQuotedPowerShell(loginHint);
@@ -130,7 +171,7 @@ async function submitKiLogin(config: AppConfig): Promise<void> {
 Add-Type -AssemblyName System.Windows.Forms
 $wshell = New-Object -ComObject WScript.Shell
 if (-not $wshell.AppActivate('${escapedTitle}')) {
-  throw 'KI login window could not be activated.'
+  throw 'Das KI-Login-Fenster konnte nicht aktiviert werden.'
 }
 Start-Sleep -Milliseconds 500
 Set-Clipboard -Value "${escapedPassword}"
@@ -145,7 +186,7 @@ Start-Sleep -Milliseconds 200
 Add-Type -AssemblyName System.Windows.Forms
 $wshell = New-Object -ComObject WScript.Shell
 if (-not $wshell.AppActivate('${escapedTitle}')) {
-  throw 'KI login window could not be activated.'
+  throw 'Das KI-Login-Fenster konnte nicht aktiviert werden.'
 }
 Start-Sleep -Milliseconds 500
 Set-Clipboard -Value "${escapedUsername}"
@@ -178,7 +219,7 @@ async function waitForLoginWindowToDisappear(config: AppConfig): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
-  throw new Error(`KI login window did not disappear within ${config.kiLoginTimeoutSeconds} seconds after login.`);
+  throw new Error(`Das KI-Login-Fenster wurde nach dem Anmelden nicht innerhalb von ${config.kiLoginTimeoutSeconds} Sekunden geschlossen.`);
 }
 
 async function waitForKiPortalWindow(config: AppConfig): Promise<KiDesktopState> {
@@ -194,7 +235,7 @@ async function waitForKiPortalWindow(config: AppConfig): Promise<KiDesktopState>
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
-  throw new Error(`KI desktop did not reach the VB-Portal window within ${config.kiLoginTimeoutSeconds} seconds after login.`);
+  throw new Error(`KI hat das VB-Portal-Fenster nach dem Anmelden nicht innerhalb von ${config.kiLoginTimeoutSeconds} Sekunden erreicht.`);
 }
 
 async function waitForKiMainWindow(config: AppConfig): Promise<KiDesktopState> {
@@ -210,7 +251,7 @@ async function waitForKiMainWindow(config: AppConfig): Promise<KiDesktopState> {
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
-  throw new Error(`KI desktop did not reach the actual KI main window within ${config.kiLoginTimeoutSeconds} seconds after the portal flow.`);
+  throw new Error(`KI hat das eigentliche Hauptfenster nach dem Portal-Ablauf nicht innerhalb von ${config.kiLoginTimeoutSeconds} Sekunden erreicht.`);
 }
 
 async function clickKiOpenInPortal(config: AppConfig, state: KiDesktopState): Promise<void> {
@@ -219,7 +260,7 @@ async function clickKiOpenInPortal(config: AppConfig, state: KiDesktopState): Pr
   );
 
   if (!portalWindow) {
-    throw new Error("VB-Portal window is not available for the KI button click step.");
+    throw new Error("Das VB-Portal-Fenster steht für den Schritt 'KI öffnen' nicht zur Verfügung.");
   }
 
   const targetX = Math.round(portalWindow.x + portalWindow.width * config.kiPortalKiButtonRelX);
@@ -236,7 +277,7 @@ public static class NativeMouse {
 "@
 $wshell = New-Object -ComObject WScript.Shell
 if (-not $wshell.AppActivate('${escapedTitle}')) {
-  throw 'VB-Portal window could not be activated.'
+  throw 'Das VB-Portal-Fenster konnte nicht aktiviert werden.'
 }
 Start-Sleep -Milliseconds 700
 [NativeMouse]::SetCursorPos(${targetX}, ${targetY}) | Out-Null
