@@ -33,29 +33,16 @@ export function detectChanges(previous: SalesRecord[], current: SalesRecord[]): 
       });
     }
 
-    if (previousRecord.salesValue !== record.salesValue) {
+    if (previousRecord.unitsValue !== record.unitsValue) {
       changes.push({
-        eventId: buildEventId("sales_value_changed", record),
-        type: "sales_value_changed",
+        eventId: buildEventId("units_value_changed", record),
+        type: "units_value_changed",
         record,
         previousRecord,
         detectedAt
       });
     }
 
-    if (
-      previousRecord.status === record.status &&
-      previousRecord.salesValue === record.salesValue &&
-      previousRecord.updatedAt !== record.updatedAt
-    ) {
-      changes.push({
-        eventId: buildEventId("updated", record),
-        type: "updated",
-        record,
-        previousRecord,
-        detectedAt
-      });
-    }
   }
 
   for (const record of previous) {

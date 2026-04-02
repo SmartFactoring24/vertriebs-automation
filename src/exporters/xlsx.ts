@@ -1,4 +1,4 @@
-﻿import fs from "node:fs/promises";
+import fs from "node:fs/promises";
 import path from "node:path";
 import * as XLSX from "xlsx";
 import type { SalesRecord } from "../state/types.js";
@@ -8,9 +8,9 @@ export async function exportSnapshotToXlsx(records: SalesRecord[], exportDirecto
 
   const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.json_to_sheet(records);
-  XLSX.utils.book_append_sheet(workbook, worksheet, "SalesSnapshot");
+  XLSX.utils.book_append_sheet(workbook, worksheet, "KiArchiv");
 
-  const filePath = path.join(exportDirectory, `snapshot-${Date.now()}.xlsx`);
+  const filePath = path.join(exportDirectory, "snapshot-current.xlsx");
   XLSX.writeFile(workbook, filePath);
   return filePath;
 }

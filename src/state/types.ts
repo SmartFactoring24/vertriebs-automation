@@ -1,9 +1,14 @@
-﻿export type SalesRecord = {
+export type SalesRecord = {
   businessId: string;
-  customerName: string;
+  partnerStage: string;
+  partnerName: string;
   productName: string;
   status: string;
-  salesValue: number;
+  unitsValue: number;
+  totalUnits: number;
+  evaluationPeriod: string;
+  businessScope: string;
+  sourcePage: string;
   submittedAt: string;
   updatedAt: string;
   source: "KI";
@@ -12,7 +17,7 @@
 export type ChangeType =
   | "created"
   | "status_changed"
-  | "sales_value_changed"
+  | "units_value_changed"
   | "updated"
   | "removed";
 

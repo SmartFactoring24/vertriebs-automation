@@ -1,102 +1,153 @@
-﻿# MVP Architektur
+# MVP Architektur
 
 ## Ziel
 
-Die Anwendung soll Verkaufsdaten aus dem internen Programm `KI` auslesen, Änderungen erkennen, diese lokal archivieren und relevante Updates in eine interne WhatsApp-Gruppe posten.
+Die Anwendung soll Daten aus `KI` auslesen, Änderungen erkennen, diese lokal als Archiv in `CSV/XLSX` protokollieren und relevante Updates optional an eine interne WhatsApp-Gruppe weitergeben.
 
 ## Systemübersicht
 
 ```mermaid
 flowchart LR
-    A[Windows Scheduler / Autostart] --> B[Bot Runtime]
-    B --> C[KI Connector]
-    C --> D[Normalizer]
-    D --> E[Change Detector]
-    E --> F[State Store]
-    E --> G[CSV/XLSX Exporter]
-    E --> H[WhatsApp Web Notifier]
-    B --> I[Logging / Screenshots]
+    A[Windows Scheduler / Launcher] --> B[Bot Runtime]
+    B --> C[DVAG Desktop Flow]
+    C --> D[KI Navigation]
+    D --> E[Table Capture + OCR]
+    E --> F[Archivschema]
+    F --> G[Change Detector]
+    G --> H[CSV/XLSX Export]
+    G --> I[WhatsApp Web Notifier]
+    B --> J[Logging / Crash Logs / Vision Artefacts]
 ```
 
 ## Laufzeitablauf
 
-1. Der Bot startet lokal über Windows-Login oder Task Scheduler.
-2. Er lädt Konfiguration und letzten Zustand.
-3. Er startet `smartclient.exe` oder verbindet sich mit einem bereits laufenden KI-Prozess.
-4. Er erkennt Start-, Login-, Portal- oder Hauptfenster des Desktop-Clients.
-5. Er wartet den Updater- und Startbildschirm ab, passiert das `VB-Portal` und prüft danach, ob `KI` erreichbar und in eingeloggtem Zustand ist.
-6. Er normalisiert die Daten in ein einheitliches internes Format.
-7. Er vergleicht den neuen Snapshot mit dem letzten bekannten Snapshot.
-8. Er exportiert relevante Änderungen.
-9. Er sendet nur bei echten Änderungen eine WhatsApp-Meldung.
-10. Er speichert den neuen Zustand und wartet bis zum nächsten Lauf.
+1. Bot startet lokal.
+2. Er verbindet sich mit laufendem `KI` oder startet `smartclient.exe`.
+3. Er passiert Login, 2FA, `VB-Portal` und `Mitteilungen`.
+4. Er bringt `KI` in einen stabilen visuellen Zustand.
+5. Er navigiert nach `VBI -> Gruppen-Akte -> Eingereichtes Geschäft -> Einheiten nach Sparten der Gruppe`.
+6. Er erkennt per Template-Matching, ob dieser Zielzustand bereits offen ist.
+7. Er capturt den mittleren Tabellenbereich.
+8. Er liest die Tabelle per OCR aus.
+9. Er überführt die Daten in ein internes Archivschema.
+10. Er exportiert Snapshot und Changes.
+11. Er sendet optional WhatsApp-Nachrichten.
 
 ## Hauptmodule
-
-### `connectors/ki.ts`
-
-Verantwortlich für:
-
-- Navigation in der `KI`
-- Auslesen der Live-Daten
-- Extraktion der fachlich relevanten Felder
-- Fehlerbehandlung bei Ladefehlern, Session-Verlust oder Popups
 
 ### `connectors/ki-desktop.ts`
 
 Verantwortlich für:
 
 - Start von `smartclient.exe`
-- Erkennung des laufenden KI-Prozesses
-- Erkennung von Start-, Login-, Portal- und Hauptfenstern
-- Grundlage für den späteren 2FA-gestützten Login-Flow
+- Erkennung der Fensterphasen `login`, `portal`, `main`
+- Schließen der vorgeschalteten News-/Mitteilungsfenster
+- Fenster-Handling inkl. Restore/Maximize/Re-Minimize
+- Navigation bis zur Tabellenansicht
+
+### `vision/tree-capture.ts`
+
+Verantwortlich für:
+
+- Screenshots definierter KI-Bildbereiche
+- Tree-Capture
+- Header-/Pfad-Capture
+- Tabellen-Capture
+- Vordergrundaktivierung des richtigen KI-Fensters vor Screenshots
+
+### `vision/match.ts`
+
+Verantwortlich für:
+
+- bildbasiertes Template-Matching
+- Erkennung des bereits offenen Zielzustands
+
+### `vision/ocr.ts`
+
+Verantwortlich für:
+
+- Tabellen-Capture per OCR lesen
+- Rohtext plus positionsbasiertes TSV auswerten
+- Namen, Sparten und Werte in strukturierte Tabellenzeilen überführen
+- deutsche Sprachdaten aus lokalem Repo-Ordner `data/tessdata` nutzen
+
+### `connectors/ki.ts`
+
+Verantwortlich für:
+
+- echten Tabellenlesefluss aufrufen
+- OCR-Zeilen in `SalesRecord[]` überführen
 
 ### `detectors/changes.ts`
 
 Verantwortlich für:
 
-- Vergleich von altem und neuem Snapshot
-- Erkennung neuer Geschäfte
-- Erkennung von Statusänderungen
-- Erkennung relevanter Wertänderungen
-- Entdoppelung bereits gemeldeter Ereignisse
+- Vergleich altes vs. neues Archiv
+- neue Einträge
+- Statusänderungen
+- Änderungen am `unitsValue`
+- `updated`
+- `removed`
 
-### `exporters/csv.ts` und `exporters/xlsx.ts`
+### `exporters/csv.ts` / `exporters/xlsx.ts`
 
 Verantwortlich für:
 
-- revisionssichere Archivierung pro Lauf
-- Delta-Export oder Vollsnapshot
-- spätere Weitergabe für Reporting
+- Snapshot-Export
+- Change-Export
+- feste `snapshot-current.*`-Dateien statt timestamp-basierter Exportflut
+- UTF-8-BOM für CSV, damit Umlaute in Excel korrekt bleiben
 
 ### `notifiers/whatsapp-web.ts`
 
 Verantwortlich für:
 
-- Öffnen oder Übernehmen des Browserkontexts
-- Suchen und Validieren der Zielgruppe
-- Schreiben und Senden von Nachrichten
-- Rückprüfung, ob die Nachricht sichtbar im Chatverlauf steht
+- Öffnen von WhatsApp Web im konfigurierten Profil
+- Gruppensuche
+- Nachricht senden
 
-### `state/store.ts`
+Wichtig:
 
-Verantwortlich für:
+- Ein WhatsApp-Fehler darf den Archivlauf nicht mehr abbrechen.
+- Auf Geräten ohne korrektes Office-Profil ist ein Scheitern erwartbar.
 
-- Persistenz des letzten bekannten Snapshots
-- Speicherung bereits gemeldeter Ereignisse
-- technische Metadaten pro Lauf
+## Aktuelle fachliche Datenquelle
 
-## Datenmodell
+Pfad:
+
+1. Reiter `VBI`
+2. `Gruppen-Akte`
+3. `Eingereichtes Geschäft`
+4. `Einheiten nach Sparten der Gruppe`
+5. mittlere Tabelle
+
+Aktuell gelesene Felder:
+
+- `partnerStage`
+- `partnerName`
+- `productName`
+- `unitsValue`
+- `totalUnits`
+- `evaluationPeriod`
+- `businessScope`
+- `sourcePage`
+
+## Archivschema
 
 ```json
 {
-  "businessId": "A12345",
-  "customerName": "Max Mustermann",
-  "productName": "XYZ Schutzbrief",
+  "businessId": "AL:Bo_hme_Erik:Leben",
+  "partnerStage": "AL",
+  "partnerName": "Böhme, Erik",
+  "productName": "Leben",
   "status": "eingereicht",
-  "salesValue": 1234.56,
-  "submittedAt": "2026-03-30T08:15:00+02:00",
-  "updatedAt": "2026-03-30T08:15:00+02:00",
+  "unitsValue": 64.8,
+  "totalUnits": 70.8,
+  "evaluationPeriod": "04.2026",
+  "businessScope": "\\VB- und VM-Geschäft",
+  "sourcePage": "Einheiten nach Sparten der Gruppe im Eigengeschäft",
+  "submittedAt": "2026-04-02T22:35:27.637Z",
+  "updatedAt": "2026-04-02T22:35:27.637Z",
   "source": "KI"
 }
 ```
@@ -105,83 +156,82 @@ Verantwortlich für:
 
 - `created`
 - `status_changed`
-- `sales_value_changed`
+- `units_value_changed`
 - `updated`
 - `removed`
 
-## Zustandsdateien
+## Vision-/OCR-Strategie
 
-Empfohlene Dateien unter `data/state/`:
+### Für Navigation
 
-- `current-state.json`
-- `last-run.json`
-- `sent-events.json`
+Bildanker:
 
-## WhatsApp Web Absicherung
+- `tree-submitted-units-selected.png`
+- `content-open-path.png`
 
-Damit das Posting nicht versehentlich im falschen Chat landet, sollte der Notifier mindestens Folgendes prüfen:
+Sie werden genutzt, um den offenen Zielzustand zu erkennen und Klicks zu überspringen.
 
-1. WhatsApp Web ist geladen und verbunden.
-2. Der Suchdialog ist bereit.
-3. Der gefundene Chatname entspricht exakt dem konfigurierten Gruppennamen.
-4. Der aktive Header des offenen Chats entspricht exakt dem Zielnamen.
-5. Der Nachrichtentext wurde korrekt in das Eingabefeld eingefügt.
-6. Nach dem Senden ist die Nachricht im Verlauf sichtbar.
+### Für Tabelle
+
+Strategie:
+
+- gezielter Tabellen-Capture
+- OCR auf vergrößerter Version
+- TSV-Parsing zur Spaltenzuordnung
+- Rohtext als Fallback für Umlaute und Namen
+
+## WhatsApp-Absicherung
+
+WhatsApp ist funktional optional.
+
+Praktische Regeln:
+
+1. Archiv und State dürfen immer geschrieben werden.
+2. WhatsApp darf nur Zusatzkanal sein.
+3. Fehler im WhatsApp-Teil dürfen keinen kompletten Lauf mehr blockieren.
+4. Das korrekte Browserprofil ist auf dem Arbeits-PC entscheidend.
+
+## Exportverhalten
+
+Der aktuelle Zielmodus ist:
+
+- Snapshot-Dateien bleiben fest unter `data/exports`
+- nur bei echten fachlichen Änderungen wird neu exportiert
+- bei unveränderten KI-Daten passiert kein neuer Export
+- der interne Arbeitsstand bleibt unter `data/state/current-state.json`
 
 ## Betriebsarten
 
-### Modus A: Polling
+### Debug / Diagnostik
 
-- Intervall z. B. alle `5` Minuten
-- einfacher für Version 1
-- geeignet für Bots auf einem Arbeitsrechner
+- `--inspect-ki`
+- `--navigate-ki-source`
+- `--capture-ki-tree`
+- `--capture-ki-header`
+- `--capture-ki-table`
+- `--capture-ki-templates`
+- `--match-ki-templates`
+- `--read-ki-table`
 
-### Modus B: Session-basierter Tageslauf
+### Produktiv
 
-- Start morgens durch Nutzer
-- manuelle Login-Prüfung nur einmal
-- anschließend Tagesbetrieb mit Intervallprüfung
+- `--once`
+- später Polling / Scheduler
 
-## MVP Grenzen
+## Aktueller Stand
 
-- keine fertigen Selektoren für eure reale `KI`
-- kein produktionsreifer Wiederanlauf nach Browser-Absturz
-- keine API-Integration für WhatsApp Business Platform
-- keine serverseitige Ausführung
+Stand jetzt:
 
-## Java Bridge Hinweis
+- Desktop-Startpfad bis `KI`: verifiziert
+- interne Navigation bis Zielansicht: verifiziert
+- Zielzustandserkennung über Templates: verifiziert
+- Tabellenlesung per OCR: verifiziert
+- Archivexport CSV/XLSX: verifiziert
+- WhatsApp auf Privat-PC: erwartbar unzuverlässig wegen falschem Profil
 
-Für Java-/Swing-Fenster wie `DVAG Online-System` und `VB-Portal` kann die `Java Access Bridge` nur dann sinnvoll diagnostiziert werden, wenn:
+## Empfohlene nächste Schritte
 
-1. `jabswitch -enable` bereits aktiv ist
-2. die Java-Diagnose-Tools vor oder während der frischen Session laufen
-3. der DVAG-Client danach neu gestartet wird
-
-Wenn die Bridge erst nach dem Start der Java-Prozesse aktiviert wurde, können `jaccessinspector` und `jaccesswalker` leer bleiben, obwohl das Fenster sichtbar ist.
-
-## Empfohlene Roadmap
-
-## Aktueller Implementierungsstand
-
-Stand `2026-03-31` ist der Desktop-Loginpfad bis zum geöffneten `KI`-Fenster auf dem Entwicklungsgerät erfolgreich verifiziert. Die aktuelle Session-Zusammenfassung steht in [handoff-2026-03-31.md](./handoff-2026-03-31.md).
-
-### Phase 1
-
-- `smartclient.exe` starten und Fensterzustand erkennen
-- Updater-/Startscreen sauber abwarten
-- Login-Flow nach 2FA-Freigabe stabil identifizieren
-- lokal als JSON und `CSV` speichern
-- keine WhatsApp-Integration
-
-### Phase 2
-
-- Delta-Erkennung
-- formatierte WhatsApp-Meldung
-- Logging und Screenshots
-
-### Phase 3
-
-- `XLSX`-Export
-- Retry-Strategien
-- Monitoring
-- dedizierter Bot-Rechner
+1. Arbeits-PC mit echtem Office-WhatsApp-Profil verifizieren.
+2. Prüfen, ob `businessId` fachlich anders aufgebaut werden soll.
+3. Scheduler-/Tageslauf auf Arbeits-PC testen.
+4. Danach Logging und Notification-Texte fachlich feinschleifen.

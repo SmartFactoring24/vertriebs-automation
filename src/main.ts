@@ -1,6 +1,15 @@
 import { loadConfig } from "./config.js";
 import { fetchSalesRecords } from "./connectors/ki.js";
-import { forceCloseKiProcesses, inspectKiDesktop, performKiLogin } from "./connectors/ki-desktop.js";
+import {
+  captureCurrentKiFullWindowRegion,
+  captureCurrentKiHeaderRegion,
+  captureCurrentKiTableRegion,
+  captureCurrentKiTreeRegion,
+  forceCloseKiProcesses,
+  inspectKiDesktop,
+  navigateKiToSubmittedUnits,
+  performKiLogin
+} from "./connectors/ki-desktop.js";
 import { detectChanges } from "./detectors/changes.js";
 import { exportChangesToCsv, exportSnapshotToCsv } from "./exporters/csv.js";
 import { exportSnapshotToXlsx } from "./exporters/xlsx.js";
@@ -9,6 +18,10 @@ import { waitForNextRun } from "./scheduler.js";
 import { StateStore } from "./state/store.js";
 import { appendLog, writeCrashLog } from "./utils/log.js";
 import { showInfoDialog, showRecoveryPrompt } from "./utils/windows.js";
+import { analyzeHeaderCapture, analyzeTreeCapture } from "./vision/analyze.js";
+import { readTableCaptureWithOcr } from "./vision/ocr.js";
+import { captureVisionTemplates } from "./vision/templates.js";
+import { matchTemplateInImage } from "./vision/match.js";
 
 function printStartupNotice(options: {
   loginKi: boolean;
@@ -28,23 +41,23 @@ function printStartupNotice(options: {
   console.log(`Modus: ${modeLabel}`);
   console.log("");
   console.log("Hinweis:");
-  console.log("- Für den laufenden Automationsbetrieb muss das PowerShell-Fenster geöffnet bleiben.");
+  console.log("- FÃ¼r den laufenden Automationsbetrieb muss das PowerShell-Fenster geÃ¶ffnet bleiben.");
   console.log(
     options.loginKi || options.runOnce
       ? "- Dieser Lauf endet nach Abschluss automatisch."
-      : `- Neue Daten werden in regelmäßigen Intervallen geprüft, aktuell alle ${options.pollIntervalMinutes} Minute(n).`
+      : `- Neue Daten werden in regelmÃ¤ÃŸigen Intervallen geprÃ¼ft, aktuell alle ${options.pollIntervalMinutes} Minute(n).`
   );
   console.log("- Crash- und Diagnoseprotokolle werden im Ordner ./data/logs gespeichert.");
-  console.log("- Die DVAG-2FA muss während des Anmeldevorgangs manuell freigegeben werden.");
-  console.log("- Bitte halten Sie Ihr Freigabegerät bereit, damit der Bot den Ablauf fortsetzen kann.");
+  console.log("- Die DVAG-2FA muss wÃ¤hrend des Anmeldevorgangs manuell freigegeben werden.");
+  console.log("- Bitte halten Sie Ihr FreigabegerÃ¤t bereit, damit der Bot den Ablauf fortsetzen kann.");
   for (const line of options.extraLines ?? []) {
     console.log(line);
   }
   console.log("");
   console.log("Firmeninterne Nutzung:");
-  console.log("- Dieses Programm wurde von Leo Mitteneder und Moritz Rolle mit Unterstützung durch Codex erstellt.");
-  console.log("- Es ist ausschließlich für die firmeninterne Nutzung bestimmt.");
-  console.log("- Eine Vervielfältigung oder Weitergabe ist nicht zulässig.");
+  console.log("- Dieses Programm wurde von Leo Mitteneder und Moritz Rolle mit UnterstÃ¼tzung durch Codex erstellt.");
+  console.log("- Es ist ausschlieÃŸlich fÃ¼r die firmeninterne Nutzung bestimmt.");
+  console.log("- Eine VervielfÃ¤ltigung oder Weitergabe ist nicht zulÃ¤ssig.");
   console.log("============================================================");
   console.log("");
 }
@@ -61,16 +74,21 @@ async function runCycle() {
     (change) => !previousState.sentEventIds.includes(change.eventId)
   );
 
+  if (changes.length === 0) {
+    await appendLog(config.logDirectory, "Keine neuen relevanten Änderungen erkannt.");
+    return;
+  }
+
   await exportSnapshotToCsv(records, config.exportDirectory);
   await exportSnapshotToXlsx(records, config.exportDirectory);
   await exportChangesToCsv(changes, config.exportDirectory);
 
-  if (changes.length > 0) {
+  if (config.whatsappNotificationsEnabled) {
     const message = buildWhatsAppMessage(changes);
     await sendWhatsAppNotification(config, message);
     await appendLog(config.logDirectory, `${changes.length} Änderungen an WhatsApp übergeben.`);
   } else {
-    await appendLog(config.logDirectory, "Keine neuen relevanten Änderungen erkannt.");
+    await appendLog(config.logDirectory, `${changes.length} Änderungen erkannt, WhatsApp-Versand ist deaktiviert.`);
   }
 
   await stateStore.save({
@@ -113,12 +131,12 @@ async function handleCrash(options: {
       title: "Vertriebs-Automation",
       message:
         "Nach dem automatischen Neustartversuch ist erneut ein Fehler aufgetreten.\n\n" +
-        `Für die Fehleranalyse wurde ein Crash-Log gespeichert:\n${crashLogPath}\n\n` +
-        "Bitte wenden Sie sich für das Troubleshooting direkt an den technischen Support:\n" +
+        `FÃ¼r die Fehleranalyse wurde ein Crash-Log gespeichert:\n${crashLogPath}\n\n` +
+        "Bitte wenden Sie sich fÃ¼r das Troubleshooting direkt an den technischen Support:\n" +
         "Moritz Rolle\n" +
         "E-Mail: moritz.rolle.assistent@dvag.de\n" +
         "Telefon: 01737552159\n\n" +
-        "Die Anwendung wird jetzt zusammen mit allen zugehörigen KI-Prozessen beendet."
+        "Die Anwendung wird jetzt zusammen mit allen zugehÃ¶rigen KI-Prozessen beendet."
     });
     await forceCloseKiProcesses(options.config);
     return "abort";
@@ -134,17 +152,17 @@ async function handleCrash(options: {
   });
 
   if (recoveryDecision === "abort_and_close_ki") {
-    await appendLog(options.config.logDirectory, "Benutzer hat 'Bot und KI beenden' im Recovery-Dialog gewählt.");
+    await appendLog(options.config.logDirectory, "Benutzer hat 'Bot und KI beenden' im Recovery-Dialog gewÃ¤hlt.");
     await forceCloseKiProcesses(options.config);
     return "abort";
   }
 
   if (recoveryDecision === "abort_only") {
-    await appendLog(options.config.logDirectory, "Benutzer hat 'Nur Bot beenden' im Recovery-Dialog gewählt.");
+    await appendLog(options.config.logDirectory, "Benutzer hat 'Nur Bot beenden' im Recovery-Dialog gewÃ¤hlt.");
     return "abort";
   }
 
-  await appendLog(options.config.logDirectory, "Automatischer Recovery-Neustart nach Benutzerbestätigung wird ausgeführt.");
+  await appendLog(options.config.logDirectory, "Automatischer Recovery-Neustart nach BenutzerbestÃ¤tigung wird ausgefÃ¼hrt.");
   await forceCloseKiProcesses(options.config);
   await new Promise((resolve) => setTimeout(resolve, 1500));
   return "retry";
@@ -158,7 +176,7 @@ async function runRecoveryTestMode(config: ReturnType<typeof loadConfig>): Promi
     modeLabel: "Recovery-Testmodus",
     extraLines: [
       "- Dieser Modus simuliert absichtlich zwei aufeinanderfolgende KI-Fehler.",
-      "- So können Crash-Logs, Dialogfenster und der Recovery-Ablauf gezielt geprüft werden."
+      "- So kÃ¶nnen Crash-Logs, Dialogfenster und der Recovery-Ablauf gezielt geprÃ¼ft werden."
     ]
   });
 
@@ -190,7 +208,7 @@ async function runRecoveryTestMode(config: ReturnType<typeof loadConfig>): Promi
 async function runCloseKiMode(config: ReturnType<typeof loadConfig>): Promise<void> {
   await appendLog(config.logDirectory, "Manueller KI-Prozessstopp wurde gestartet.");
   await forceCloseKiProcesses(config);
-  console.log("Alle zugehörigen KI-Prozesse wurden beendet.");
+  console.log("Alle zugehÃ¶rigen KI-Prozesse wurden beendet.");
 }
 
 async function main() {
@@ -200,6 +218,14 @@ async function main() {
   const runOnce = process.argv.includes("--once");
   const testRecovery = process.argv.includes("--test-recovery");
   const closeKi = process.argv.includes("--close-ki");
+  const navigateKiSource = process.argv.includes("--navigate-ki-source");
+  const captureKiTree = process.argv.includes("--capture-ki-tree");
+  const captureKiHeader = process.argv.includes("--capture-ki-header");
+  const captureKiTable = process.argv.includes("--capture-ki-table");
+  const readKiTable = process.argv.includes("--read-ki-table");
+  const analyzeKiVision = process.argv.includes("--analyze-ki-vision");
+  const captureKiTemplates = process.argv.includes("--capture-ki-templates");
+  const matchKiTemplates = process.argv.includes("--match-ki-templates");
 
   if (inspectKi) {
     const state = await inspectKiDesktop(config);
@@ -214,6 +240,188 @@ async function main() {
 
   if (testRecovery) {
     await runRecoveryTestMode(config);
+    return;
+  }
+
+  if (navigateKiSource) {
+    printStartupNotice({
+      loginKi: true,
+      runOnce: true,
+      pollIntervalMinutes: config.pollIntervalMinutes,
+      modeLabel: "KI-Navigationstest",
+      extraLines: [
+        "- Dieser Modus navigiert nur bis zur Datenansicht 'Einheiten nach Sparten der Gruppe'.",
+        "- Die mittlere Liste wird dabei noch nicht ausgelesen."
+      ]
+    });
+    const state = await navigateKiToSubmittedUnits(config);
+    console.log(JSON.stringify(state, null, 2));
+    return;
+  }
+
+  if (captureKiTree) {
+    printStartupNotice({
+      loginKi: true,
+      runOnce: true,
+      pollIntervalMinutes: config.pollIntervalMinutes,
+      modeLabel: "KI-Tree-Capture",
+      extraLines: [
+        "- Dieser Modus erstellt einen Screenshot nur vom linken KI-Navigationsbaum.",
+        "- Das Bild dient als Grundlage fÃ¼r den geplanten OpenCV/OCR-Hybridansatz."
+      ]
+    });
+    const artifact = await captureCurrentKiTreeRegion(config);
+    console.log(JSON.stringify(artifact, null, 2));
+    return;
+  }
+
+  if (captureKiHeader) {
+    printStartupNotice({
+      loginKi: true,
+      runOnce: true,
+      pollIntervalMinutes: config.pollIntervalMinutes,
+      modeLabel: "KI-Header-Capture",
+      extraLines: [
+        "- Dieser Modus erstellt einen Screenshot vom oberen KI-Inhaltsbereich.",
+        "- Das Bild dient zur Erkennung, ob sich der Bot bereits in der Gruppen-Akte befindet."
+      ]
+    });
+    const artifact = await captureCurrentKiHeaderRegion(config);
+    console.log(JSON.stringify(artifact, null, 2));
+    return;
+  }
+
+  if (captureKiTable) {
+    printStartupNotice({
+      loginKi: true,
+      runOnce: true,
+      pollIntervalMinutes: config.pollIntervalMinutes,
+      modeLabel: "KI-Tabellen-Capture",
+      extraLines: [
+        "- Dieser Modus erstellt einen Screenshot nur vom mittleren Tabellenbereich.",
+        "- Das Bild dient als Grundlage fÃ¼r das anschlieÃŸende Datenauslesen."
+      ]
+    });
+    const artifact = await captureCurrentKiTableRegion(config);
+    console.log(JSON.stringify(artifact, null, 2));
+    return;
+  }
+
+  if (readKiTable) {
+    printStartupNotice({
+      loginKi: true,
+      runOnce: true,
+      pollIntervalMinutes: config.pollIntervalMinutes,
+      modeLabel: "KI-Tabellenlesung",
+      extraLines: [
+        "- Dieser Modus erstellt einen Tabellen-Capture und versucht die Inhalte per OCR zu lesen.",
+        "- ZunÃ¤chst geht es nur um die technische Lesbarkeit, noch nicht um das finale Business-Parsing."
+      ]
+    });
+    const artifact = await captureCurrentKiTableRegion(config);
+    const ocr = await readTableCaptureWithOcr(config, artifact.imagePath);
+    console.log(JSON.stringify({ artifact, ocr }, null, 2));
+    return;
+  }
+
+  if (analyzeKiVision) {
+    printStartupNotice({
+      loginKi: true,
+      runOnce: true,
+      pollIntervalMinutes: config.pollIntervalMinutes,
+      modeLabel: "KI-Vision-Analyse",
+      extraLines: [
+        "- Dieser Modus erstellt Header- und Tree-Captures und wertet sie lokal heuristisch aus.",
+        "- Ziel ist die EinschÃ¤tzung, ob Gruppen-Akte und der Zielzustand im Tree visuell stabil erkennbar sind."
+      ]
+    });
+    const treeArtifact = await captureCurrentKiTreeRegion(config);
+    const headerArtifact = await captureCurrentKiHeaderRegion(config);
+    const treeAnalysis = await analyzeTreeCapture(config, treeArtifact);
+    const headerAnalysis = await analyzeHeaderCapture(config, headerArtifact);
+    console.log(JSON.stringify({ treeAnalysis, headerAnalysis }, null, 2));
+    return;
+  }
+
+  if (captureKiTemplates) {
+    printStartupNotice({
+      loginKi: true,
+      runOnce: true,
+      pollIntervalMinutes: config.pollIntervalMinutes,
+      modeLabel: "KI-Template-Capture",
+      extraLines: [
+        "- Dieser Modus schneidet aus den aktuellen KI-Captures erste Bildanker fÃ¼r das spÃ¤tere Matching aus.",
+        "- Bitte nur dann verwenden, wenn die gewÃ¼nschte Zielansicht gerade wirklich sichtbar ist."
+      ]
+    });
+    const fullWindowArtifact = await captureCurrentKiFullWindowRegion(config);
+    const treeArtifact = await captureCurrentKiTreeRegion(config);
+    const headerArtifact = await captureCurrentKiHeaderRegion(config);
+    const templates = await captureVisionTemplates({ config, fullWindowArtifact, headerArtifact, treeArtifact });
+    console.log(JSON.stringify(templates, null, 2));
+    return;
+  }
+
+  if (matchKiTemplates) {
+    printStartupNotice({
+      loginKi: true,
+      runOnce: true,
+      pollIntervalMinutes: config.pollIntervalMinutes,
+      modeLabel: "KI-Template-Matching",
+      extraLines: [
+        "- Dieser Modus prÃ¼ft, ob die aktuellen KI-Bildanker live im Fensterbild wiedergefunden werden.",
+        "- Er dient nur der Verifikation des geplanten bildbasierten Zustandsabgleichs."
+      ]
+    });
+    const fullWindowArtifact = await captureCurrentKiFullWindowRegion(config);
+    const treeArtifact = await captureCurrentKiTreeRegion(config);
+
+    const templatesBase = `${config.visionDirectory}\\templates`;
+    const treeGruppenAkteHeader = await matchTemplateInImage({
+      sourcePath: treeArtifact.imagePath,
+      templatePath: `${templatesBase}\\tree-gruppen-akte-header.png`,
+      searchRegion: { x: 0, y: 0, width: treeArtifact.region.width, height: Math.round(treeArtifact.region.height * 0.16) },
+      sampleCols: 14,
+      sampleRows: 5,
+      threshold: 28
+    });
+    const treeSubmittedUnitsSelected = await matchTemplateInImage({
+      sourcePath: treeArtifact.imagePath,
+      templatePath: `${templatesBase}\\tree-submitted-units-selected.png`,
+      searchRegion: {
+        x: 0,
+        y: Math.round(treeArtifact.region.height * 0.24),
+        width: treeArtifact.region.width,
+        height: Math.round(treeArtifact.region.height * 0.30)
+      },
+      sampleCols: 14,
+      sampleRows: 5,
+      threshold: 28
+    });
+    const contentOpenPath = await matchTemplateInImage({
+      sourcePath: fullWindowArtifact.imagePath,
+      templatePath: `${templatesBase}\\content-open-path.png`,
+      searchRegion: { x: 180, y: 90, width: 720, height: 90 },
+      sampleCols: 16,
+      sampleRows: 4,
+      threshold: 28
+    });
+
+    console.log(
+      JSON.stringify(
+        {
+          treeArtifact,
+          fullWindowArtifact,
+          matches: {
+            treeGruppenAkteHeader,
+            treeSubmittedUnitsSelected,
+            contentOpenPath
+          }
+        },
+        null,
+        2
+      )
+    );
     return;
   }
 
